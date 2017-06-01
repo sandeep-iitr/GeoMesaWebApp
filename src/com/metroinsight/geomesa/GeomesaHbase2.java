@@ -15,6 +15,9 @@ import org.geotools.filter.text.cql2.CQL;
 import org.geotools.filter.text.cql2.CQLException;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
 import org.locationtech.geomesa.utils.text.WKTUtils$;
 import org.opengis.feature.Feature;
 import org.opengis.feature.simple.SimpleFeature;
@@ -29,7 +32,7 @@ import java.util.Map;
 import java.util.Random;
 
 
-public class GeomesaHbase {
+public class GeomesaHbase2 {
 
 	static String TABLE_NAME = "bigtable.table.name".replace(".", "_");
 
@@ -71,13 +74,14 @@ public class GeomesaHbase {
 
         // list the attributes that constitute the feature type
         List<String> attributes = Lists.newArrayList(
-                "Who:String",
-                "What:java.lang.Long",     // some types require full qualification (see DataUtilities docs)
-                "When:Date",               // a date-time field is optional, but can be indexed
-                "*Where:Point:srid=4326",  // the "*" denotes the default geometry (used for indexing)
-                "Why:String"               // you may have as many other attributes as you like...
+                "name:String",
+                "value:java.lang.Long",     
+                "date:Date",               
+                "*Where:Point:srid=4326",  
+                "data_type:String",
+                "unit:String"
         );
-
+        
         // create the bare simple-feature type
         String simpleFeatureTypeSchema = Joiner.on(",").join(attributes);
         SimpleFeatureType simpleFeatureType =
@@ -87,52 +91,68 @@ public class GeomesaHbase {
     }
 
     
-    static FeatureCollection createNewFeatures(SimpleFeatureType simpleFeatureType, int numNewFeatures) {
+    static FeatureCollection createNewFeatures(SimpleFeatureType simpleFeatureType, String data) {
         DefaultFeatureCollection featureCollection = new DefaultFeatureCollection();
 
         String id;
         Object[] NO_VALUES = {};
-        String[] PEOPLE_NAMES = {"Addams", "Bierce", "Clemens"};
-        Long SECONDS_PER_YEAR = 365L * 24L * 60L * 60L;
-        Random random = new Random(5771);
-        DateTime MIN_DATE = new DateTime(2014, 1, 1, 0, 0, 0, DateTimeZone.forID("UTC"));
-        Double MIN_X = -79.5;
-        Double MIN_Y =  37.0;
-        Double DX = 2.0;
-        Double DY = 2.0;
-
-        for (int i = 0; i < numNewFeatures; i ++) {
+       
             // create the new (unique) identifier and empty feature shell
-            id = "Observation." + Integer.toString(i);
+            id = "Observation." + Integer.toString(1);
             SimpleFeature simpleFeature = SimpleFeatureBuilder.build(simpleFeatureType, NO_VALUES, id);
+/*
+            "name:String",
+            "value:java.lang.Long",     
+            "date:Date",               
+            "*location:Point:srid=4326",  
+            "data_type:String",
+            "unit:String"
+ */      
+            try{
+              JSONParser parser = new JSONParser();
+			  JSONObject obj2=(JSONObject)parser.parse(data);
+			 
+			  String name=(String) obj2.get("name");
+			  String unit =(String)obj2.get("unit");
+			  
+			  JSONObject loc=(JSONObject)obj2.get("location");
+			  double lat =(Double)loc.get("lat");
+			  double lng =(Double)loc.get("lng");
+			  
+			  Long timestamp =(Long)obj2.get("timeStamp");
+			  
+			  String value = (String) obj2.get("value");
+			  
+			  String data_type = (String)obj2.get("data_type");
+			  
+			    DateTime dateTime=new DateTime(timestamp);
+	            //simpleFeature.getUserData().put(Hints.USE_PROVIDED_FID, java.lang.Boolean.TRUE);
+	            simpleFeature.setAttribute("name",name);
+	            simpleFeature.setAttribute("unit",unit);
+	            simpleFeature.setAttribute("value",value);
+	            simpleFeature.setAttribute("data_type", data_type);
+	            Geometry geometry = WKTUtils$.MODULE$.read("POINT(" + lat + " " + lng + ")");
+	            simpleFeature.setAttribute("Where", geometry);
+	            simpleFeature.setAttribute("date", dateTime.toDate());
 
-            // be sure to tell GeoTools explicitly that you want to use the ID you provided
-            simpleFeature.getUserData().put(Hints.USE_PROVIDED_FID, java.lang.Boolean.TRUE);
+	            // Why: another string value
+	            // left empty, showing that not all attributes need values
 
-            // populate the new feature's attributes
-
-            // Who: string value
-            simpleFeature.setAttribute("Who", PEOPLE_NAMES[i % PEOPLE_NAMES.length]);
-
-            // What: long value
-            simpleFeature.setAttribute("What", i);
-
-            // Where: location: construct a random point within a 2-degree-per-side square
-            double x = MIN_X + random.nextDouble() * DX;
-            double y = MIN_Y + random.nextDouble() * DY;
-            Geometry geometry = WKTUtils$.MODULE$.read("POINT(" + x + " " + y + ")");
-            simpleFeature.setAttribute("Where", geometry);
-
-            // When: date-time:  construct a random instant within a year
-            DateTime dateTime = MIN_DATE.plusSeconds((int) Math.round(random.nextDouble() * SECONDS_PER_YEAR));
-            simpleFeature.setAttribute("When", dateTime.toDate());
-
-            // Why: another string value
-            // left empty, showing that not all attributes need values
-
-            // accumulate this new feature in the collection
-            featureCollection.add(simpleFeature);
-        }
+	            // accumulate this new feature in the collection
+	            featureCollection.add(simpleFeature);
+            }
+            catch(Exception e){
+           
+            	e.printStackTrace();
+            }
+			 //System.out.print("Record Num: "+obj2.get("RecordNum"));
+			// System.out.print(" DataType: "+obj2.get("DataType"));
+			 //System.out.print(" DataValue: "+obj2.get("DataValueInt"));
+			// System.out.println();
+			 
+            
+           
+       
 
         return featureCollection;
     }
@@ -148,9 +168,8 @@ public class GeomesaHbase {
     }
     
 
-    static Filter createFilter(String geomField, double x0, double y0, double x1, double y1,
-                               String dateField, String t0, String t1,
-                               String attributesQuery)
+    static Filter createFilter(String geomField, double x0, double y0, double x1, double y1
+                               )
             throws CQLException, IOException {
 
         // there are many different geometric predicates that might be used;
@@ -159,107 +178,61 @@ public class GeomesaHbase {
         String cqlGeometry = "BBOX(" + geomField + ", " +
                 x0 + ", " + y0 + ", " + x1 + ", " + y1 + ")";
 
-        // there are also quite a few temporal predicates; here, we use a
-        // "DURING" predicate, because we have a fixed range of times that
-        // we want to query
-        String cqlDates = "(" + dateField + " DURING " + t0 + "/" + t1 + ")";
-
-        // there are quite a few predicates that can operate on other attribute
-        // types; the GeoTools Filter constant "INCLUDE" is a default that means
-        // to accept everything
-        String cqlAttributes = attributesQuery == null ? "INCLUDE" : attributesQuery;
-
-        String cql = cqlGeometry + " AND " + cqlDates  + " AND " + cqlAttributes;
+        String cql = cqlGeometry;
         return CQL.toFilter(cql);
     }
 
-    static void queryFeatures(String simpleFeatureTypeName,
+    static JSONArray queryFeatures(String simpleFeatureTypeName,
             DataStore dataStore,
-            String geomField, double x0, double y0, double x1, double y1,
-            String dateField, String t0, String t1,
-            String attributesQuery)
+            String geomField, double x0, double y0, double x1, double y1)
             		throws CQLException, IOException 
     {
 
     	// construct a (E)CQL filter from the search parameters,
     	// and use that as the basis for the query
-	Filter cqlFilter = createFilter(geomField, x0, y0, x1, y1, dateField, t0, t1, attributesQuery);
+	Filter cqlFilter = createFilter(geomField, x0, y0, x1, y1);
 	Query query = new Query(simpleFeatureTypeName, cqlFilter);
 	
 	// submit the query, and get back an iterator over matching features
 	FeatureSource featureSource = dataStore.getFeatureSource(simpleFeatureTypeName);
 	FeatureIterator featureItr = featureSource.getFeatures(query).features();
 	
+	//FeatureIterator featureItr = featureSource.getFeatures().features();
+	
+	 JSONArray ja=new JSONArray();
+	 
+	    
 	// loop through all results
 	int n = 0;
 	while (featureItr.hasNext()) {
 	Feature feature = featureItr.next();
 	System.out.println((++n) + ".  " +
-	  feature.getProperty("Who").getValue() + "|" +
-	  feature.getProperty("What").getValue() + "|" +
-	  feature.getProperty("When").getValue() + "|" +
+	  feature.getProperty("name").getValue() + "|" +
+	  feature.getProperty("data_type").getValue() + "|" +
+	  feature.getProperty("value").getValue() + "|" +
+	  feature.getProperty("date").getValue() + "|" +
 	  feature.getProperty("Where").getValue() + "|" +
-	  feature.getProperty("Why").getValue());
+	  feature.getProperty("unit").getValue());
+	
+	    JSONObject Data = new JSONObject();
+	    Data.put("name", feature.getProperty("name").getValue());
+	    Data.put("data_type", feature.getProperty("data_type").getValue());
+	    Data.put("unit", feature.getProperty("value").getValue());
+	    Data.put("value", "25");
+	    Data.put("date", feature.getProperty("date").getValue());
+	    Data.put("where", feature.getProperty("Where").getValue());
+	    Data.put("unit", feature.getProperty("unit").getValue());
+	    
+	    ja.add(Data);
+	    
 	}
 	featureItr.close();
+	
+	return ja;
 	}
 
 
     
-    public  void geomesa_insertData() {
-        // find out where -- in HBase -- the user wants to store data
-        CommandLineParser parser = new BasicParser();
-        Options options = getCommonRequiredOptions();
-        
-    try{
-        String[] args =new String[2];
-        args[0]="--bigtable_table_name";
-        args[1]="geomesa";
-        
-        CommandLine cmd=null;
-		
-			cmd = parser.parse( options, args);
-		
-       
-        // verify that we can see this HBase destination in a GeoTools manner
-        Map<String, Serializable> dsConf = getHBaseDataStoreConf(cmd);
-        DataStore dataStore;
-		
-			dataStore = DataStoreFinder.getDataStore(dsConf);
-			assert dataStore != null;
-			
-
-        // establish specifics concerning the SimpleFeatureType to store
-        String simpleFeatureTypeName = "QuickStart";
-        SimpleFeatureType simpleFeatureType = createSimpleFeatureType(simpleFeatureTypeName);
-
-        // write Feature-specific metadata to the destination table in HBase
-        // (first creating the table if it does not already exist); you only need
-        // to create the FeatureType schema the *first* time you write any Features
-        // of this type to the table
-        System.out.println("Creating feature-type (schema):  " + simpleFeatureTypeName);
-        dataStore.createSchema(simpleFeatureType);
-
-        // create new features locally, and add them to this table
-        System.out.println("Creating new features");
-        FeatureCollection featureCollection = createNewFeatures(simpleFeatureType, 1000);
-        System.out.println("Inserting new features");
-        insertFeatures(simpleFeatureTypeName, dataStore, featureCollection);
-
-        // query a few Features from this table
-        System.out.println("Submitting query");
-        queryFeatures(simpleFeatureTypeName, dataStore,
-                "Where", -78.5, 37.5, -78.0, 38.0,
-                "When", "2014-07-01T00:00:00.000Z", "2014-09-30T23:59:59.999Z",
-                "(Who = 'Bierce')");
-    }//end try
-    catch(Exception e)
-    {
-    
-    	e.printStackTrace();
-    }
-    
-    }//end function
     
     
     
@@ -271,7 +244,7 @@ public class GeomesaHbase {
     try{
         String[] args =new String[2];
         args[0]="--bigtable_table_name";
-        args[1]="geomesa";
+        args[1]="Geomesa";
         
         CommandLine cmd=null;
 		
@@ -294,21 +267,24 @@ public class GeomesaHbase {
         // (first creating the table if it does not already exist); you only need
         // to create the FeatureType schema the *first* time you write any Features
         // of this type to the table
-        System.out.println("Creating feature-type (schema):  " + simpleFeatureTypeName);
-        dataStore.createSchema(simpleFeatureType);
+        //System.out.println("Creating feature-type (schema):  " + simpleFeatureTypeName);
+        //dataStore.createSchema(simpleFeatureType);
 
         // create new features locally, and add them to this table
         System.out.println("Creating new features");
-        FeatureCollection featureCollection = createNewFeatures(simpleFeatureType, 1000);
+        FeatureCollection featureCollection = createNewFeatures(simpleFeatureType, data);
         System.out.println("Inserting new features");
         insertFeatures(simpleFeatureTypeName, dataStore, featureCollection);
-
-        // query a few Features from this table
-        System.out.println("Submitting query");
-        queryFeatures(simpleFeatureTypeName, dataStore,
-                "Where", -78.5, 37.5, -78.0, 38.0,
-                "When", "2014-07-01T00:00:00.000Z", "2014-09-30T23:59:59.999Z",
-                "(Who = 'Bierce')");
+        System.out.println("done inserting Data");
+        
+       
+        /*
+        //querying Data now, results as shown below:
+        System.out.println("querying Data now, results as shown below:");
+        Query();
+        */
+        System.out.println("Done");
+        
     }//end try
     catch(Exception e)
     {
@@ -317,5 +293,44 @@ public class GeomesaHbase {
     }
     
     }//end function
+	
+    public JSONArray Query()
+    {
+    	try{
+    	  CommandLineParser parser = new BasicParser();
+          Options options = getCommonRequiredOptions();
+          
+    	  String[] args =new String[2];
+          args[0]="--bigtable_table_name";
+          args[1]="Geomesa";
+          
+          CommandLine cmd=null;
+  		
+  			cmd = parser.parse( options, args);
+  			
+    	String simpleFeatureTypeName = "MetroInsight";
+    	// verify that we can see this HBase destination in a GeoTools manner
+        Map<String, Serializable> dsConf = getHBaseDataStoreConf(cmd);
+        DataStore dataStore;
 		
+			dataStore = DataStoreFinder.getDataStore(dsConf);
+			assert dataStore != null;
+			
+			// water data|temperature|25|Thu Sep 01 06:28:00 PDT 2016|POINT (-77.5577293170671 38.384020026677035)|degree celcius
+    	// query a few Features from this table
+        System.out.println("Submitting query");
+        JSONArray result=queryFeatures(simpleFeatureTypeName, dataStore,
+                "Where", -76.5, 37.5, -78.0, 39.0);
+        
+        return result;
+    	}
+    	catch(Exception e)
+    	{
+    		e.printStackTrace();
+    	}
+		return null;
+    	
+    	
+    }
+    
 	}//end class

@@ -10,10 +10,12 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.json.simple.JSONArray;
 import org.json.simple.parser.JSONParser;
 
 import com.example.kafka.kafkaProducer;
 import com.metroinsight.geomesa.GeomesaHbase;
+import com.metroinsight.geomesa.GeomesaHbase2;
 
 /**
  * Servlet implementation class PutData
@@ -40,6 +42,17 @@ public class PutData2 extends HttpServlet {
 		PrintWriter writer = response.getWriter();
 		writer.println("<h1>Hello " + "MetroInsight is Running" + "</h1>");
 		System.out.println("Hi, metroInsight is Running");
+		
+		 
+        //querying Data now, results as shown below:
+        System.out.println("querying Data now, results as shown below:");
+        GeomesaHbase2 gmh=new GeomesaHbase2();
+        JSONArray res=gmh.Query();
+        
+        writer.println("<p>Data is as below:<br> " +res.toJSONString()+ "<p>");
+        
+        System.out.println("Done");
+        
 	}
 
 	/**
@@ -55,7 +68,10 @@ public class PutData2 extends HttpServlet {
 		    BufferedReader reader = request.getReader();
 		    while ((line = reader.readLine()) != null)
 		        jsonBuff.append(line);
-		} catch (Exception e) { /*error*/ }
+		} catch (Exception e) { /*error*/
+			
+			e.printStackTrace();
+		}
 	
 		
 		
@@ -64,12 +80,13 @@ public class PutData2 extends HttpServlet {
 		//kafkaProducer kp=new kafkaProducer();
 		//kp.SendData();
 		
-		GeomesaHbase gmh=new GeomesaHbase();
-		//gmh.geomesa_insertData();
+		String data = jsonBuff.toString();
+		
+		GeomesaHbase2 gmh=new GeomesaHbase2();
+		gmh.geomesa_insertData(data);
 		
 		PrintWriter writer = response.getWriter();
 		writer.println("<h1>Hello " + "Sandy Data Send" + "</h1>");
-		
 		writer.close();
 		
 	}
